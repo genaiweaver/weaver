@@ -1,0 +1,19 @@
+# config/samples/echo-ksvc.yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: weaver-echo
+  namespace: weaver
+spec:
+  template:
+    spec:
+      containers:
+        - image: roylkngk/weaver-echo:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: "/health"
+              port: 8080
+

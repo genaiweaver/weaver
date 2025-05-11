@@ -1,0 +1,9 @@
+apiVersion: weaver.io/v1alpha1
+kind: WeaverAgent
+metadata:
+  labels:
+    app.kubernetes.io/name: weaver
+    app.kubernetes.io/managed-by: kustomize
+  name: weaveragent-sample
+spec:
+  # TODO(user): Add fields here

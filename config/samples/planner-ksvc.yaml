@@ -1,0 +1,19 @@
+# config/samples/planner-ksvc.yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: weaver-planner
+  namespace: weaver
+spec:
+  template:
+    spec:
+      containers:
+        - image: roylkngk/weaver-planner:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: "/health"
+              port: 8080
+

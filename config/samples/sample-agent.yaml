@@ -1,0 +1,17 @@
+apiVersion: weaver.io/v1alpha1
+kind: WeaverAgent
+metadata:
+  name: sample-agent
+  namespace: weaver
+spec:
+  broker: default
+  nodes:
+    - serviceName: weaver-planner
+    - serviceName: weaver-echo
+  edges:
+    - eventType: com.sample.start
+      to: weaver-planner
+    - eventType: com.sample.planned
+      to: weaver-echo
+    - eventType: com.sample.done
+      to: weaver-planner
