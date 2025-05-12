@@ -1,0 +1,55 @@
+apiVersion: weaver.io/v1alpha1
+kind: WeaverNode
+metadata:
+  name: filesystem
+spec:
+  id: filesystem
+  componentType: agent
+  serviceName: filesystem
+  endpoint: http://filesystem.weaver.svc.cluster.local/
+  metadata:
+    description: "Secure file operations with configurable access controls"
+    repo: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem"
+  consumes:
+    - com.weaver.fs.read
+    - com.weaver.fs.write
+  produces:
+    - com.weaver.fs.result
+  invocationMechanisms:
+    - type: cloudEvent
+      broker: default
+      attributes:
+        ce-type: com.weaver.fs.read
+        ce-source: /weaver/filesystem
+        ce-specversion: "1.0"
+        ce-datacontenttype: application/json
+    - type: cloudEvent
+      broker: default
+      attributes:
+        ce-type: com.weaver.fs.write
+        ce-source: /weaver/filesystem
+        ce-specversion: "1.0"
+        ce-datacontenttype: application/json
+  eventMappings:
+    - name: com.weaver.fs.read
+      description: "Read contents of a file at the given path"
+      parameters:
+        schema: '{"type":"object","required":["path"],"properties":{"path":{"type":"string","description":"Absolute or relative file path"}}}'
+    - name: com.weaver.fs.write
+      description: "Write data to a file at the given path"
+      parameters:
+        schema: '{"type":"object","required":["path","content"],"properties":{"path":{"type":"string","description":"Target file path"},"content":{"type":"string","description":"Data to write to disk"}}}'
+  storeInRedis: true
+  redisConfigRef:
+    host: redis.weaver.svc.cluster.local
+    port: 6379
+    secret: redis-secret
+status:
+  healthy: true
+  lastHeartbeat: "2025-05-12T12:00:00Z"
+  conditions:
+    - type: Ready
+      status: "True"
+      lastTransitionTime: "2025-05-12T12:00:00Z"
+      reason: "Initialized"
+      message: "Node is ready"

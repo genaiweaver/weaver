@@ -24,6 +24,8 @@ import (
 type WeaverAgentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	KnativeServingAvailable bool
+	KnativeEventingAvailable bool
 }
 
 // RBAC permissions
@@ -40,6 +42,22 @@ func (r *WeaverAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	var agent weaverv1alpha1.WeaverAgent
 	if err := r.Get(ctx, req.NamespacedName, &agent); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Check if Knative Serving is available
+	if !r.KnativeServingAvailable {
+		logger.Info("Knative Serving is not available, skipping service reconciliation")
+		agent.Status.ObservedGeneration = agent.Generation
+		agent.Status.Conditions = append(agent.Status.Conditions, metav1.Condition{
+			Type:    "KnativeServingAvailable",
+			Status:  metav1.ConditionFalse,
+			Reason:  "NotInstalled",
+			Message: "Knative Serving is not installed in the cluster",
+		})
+		if err := r.Status().Update(ctx, &agent); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// 2. Reconcile each Node as a Knative Service
@@ -105,6 +123,22 @@ func (r *WeaverAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 	}
 
+	// Check if Knative Eventing is available
+	if !r.KnativeEventingAvailable {
+		logger.Info("Knative Eventing is not available, skipping trigger reconciliation")
+		agent.Status.ObservedGeneration = agent.Generation
+		agent.Status.Conditions = append(agent.Status.Conditions, metav1.Condition{
+			Type:    "KnativeEventingAvailable",
+			Status:  metav1.ConditionFalse,
+			Reason:  "NotInstalled",
+			Message: "Knative Eventing is not installed in the cluster",
+		})
+		if err := r.Status().Update(ctx, &agent); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
 	// 3. Reconcile each Edge as a Knative Trigger
 	for i, edge := range agent.Spec.Edges {
 		trig := &eventingv1.Trigger{
@@ -162,18 +196,43 @@ func (r *WeaverAgentReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 // SetupWithManager registers the controller with the manager
 func (r *WeaverAgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Make sure the scheme knows about the types we're watching
-	if err := servingv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return err
-	}
-	if err := eventingv1.AddToScheme(mgr.GetScheme()); err != nil {
-		return err
+	logger := log.Log.WithName("weaveragent-controller")
+
+	// Only try to add Knative schemes if the respective features are available
+	if r.KnativeServingAvailable {
+		logger.Info("Knative Serving is available, registering Serving types")
+		if err := servingv1.AddToScheme(mgr.GetScheme()); err != nil {
+			logger.Error(err, "Failed to add Knative Serving scheme")
+			r.KnativeServingAvailable = false
+		}
+	} else {
+		logger.Info("Knative Serving is not available. To enable Knative Serving features, install Knative Serving in your cluster")
 	}
 
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&weaverv1alpha1.WeaverAgent{}).
-		// Use Owns with the correct API versions
-		Owns(&servingv1.Service{}).
-		Owns(&eventingv1.Trigger{}).
-		Complete(r)
+	if r.KnativeEventingAvailable {
+		logger.Info("Knative Eventing is available, registering Eventing types")
+		if err := eventingv1.AddToScheme(mgr.GetScheme()); err != nil {
+			logger.Error(err, "Failed to add Knative Eventing scheme")
+			r.KnativeEventingAvailable = false
+		}
+	} else {
+		logger.Info("Knative Eventing is not available. To enable Knative Eventing features, install Knative Eventing in your cluster")
+	}
+
+	// Create a controller builder that only watches WeaverAgent resources
+	builder := ctrl.NewControllerManagedBy(mgr).
+		For(&weaverv1alpha1.WeaverAgent{})
+
+	// Only watch Knative resources if they're available and successfully registered
+	if r.KnativeServingAvailable {
+		logger.Info("Setting up watches for Knative Serving resources")
+		builder = builder.Owns(&servingv1.Service{})
+	}
+
+	if r.KnativeEventingAvailable {
+		logger.Info("Setting up watches for Knative Eventing resources")
+		builder = builder.Owns(&eventingv1.Trigger{})
+	}
+
+	return builder.Complete(r)
 }

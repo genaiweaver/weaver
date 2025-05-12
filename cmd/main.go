@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -26,6 +27,9 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -37,8 +41,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	eventingv1 "knative.dev/eventing/pkg/apis/eventing/v1"
-	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
+
 
 	weaverv1alpha1 "github.com/weaver/weaver/api/v1alpha1"
 	"github.com/weaver/weaver/controllers"
@@ -52,10 +55,10 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
 	utilruntime.Must(weaverv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(servingv1.AddToScheme(scheme))
-	utilruntime.Must(eventingv1.AddToScheme(scheme))
+
+	// Don't add Knative schemes if they're not available
+	setupLog.Info("Knative APIs may not be available, some features will be disabled")
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -207,9 +210,48 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Check if Knative CRDs are installed
+	setupLog.Info("Checking for Knative CRDs")
+
+	apiextClient, err := apiextensionsv1.NewForConfig(ctrl.GetConfigOrDie())
+	if err != nil {
+		setupLog.Error(err, "unable to create apiextensions client")
+		os.Exit(1)
+	}
+
+	// Check for Knative Serving
+	knativeServingAvailable := false
+	_, err = apiextClient.CustomResourceDefinitions().Get(context.Background(), "services.serving.knative.dev", metav1.GetOptions{})
+	if err == nil {
+		setupLog.Info("✅ Knative Serving CRD found")
+		knativeServingAvailable = true
+	} else {
+		if apierrors.IsNotFound(err) {
+			setupLog.Info("❌ Knative Serving CRD not found. To enable Knative Serving features, install Knative Serving using scripts/install-knative-serving.sh")
+		} else {
+			setupLog.Error(err, "Error checking for Knative Serving CRD")
+		}
+	}
+
+	// Check for Knative Eventing
+	knativeEventingAvailable := false
+	_, err = apiextClient.CustomResourceDefinitions().Get(context.Background(), "triggers.eventing.knative.dev", metav1.GetOptions{})
+	if err == nil {
+		setupLog.Info("✅ Knative Eventing CRD found")
+		knativeEventingAvailable = true
+	} else {
+		if apierrors.IsNotFound(err) {
+			setupLog.Info("❌ Knative Eventing CRD not found. To enable Knative Eventing features, install Knative Eventing using scripts/install-knative-eventing.sh")
+		} else {
+			setupLog.Error(err, "Error checking for Knative Eventing CRD")
+		}
+	}
+
 	if err = (&controllers.WeaverAgentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		KnativeServingAvailable: knativeServingAvailable,
+		KnativeEventingAvailable: knativeEventingAvailable,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "WeaverAgent")
 		os.Exit(1)

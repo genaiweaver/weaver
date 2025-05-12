@@ -30,6 +30,7 @@ rules:
   - weaver.io
   resources:
   - weaveragents
+  - weavernodes
   verbs:
   - create
   - delete
@@ -48,6 +49,7 @@ rules:
   - weaver.io
   resources:
   - weaveragents/status
+  - weavernodes/status
   verbs:
   - get
   - patch
